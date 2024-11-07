@@ -9,9 +9,8 @@ import org.springframework.web.client.RestTemplate;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 @Service
 public class MotoService implements MotoServiceInterface {
@@ -32,47 +31,44 @@ public class MotoService implements MotoServiceInterface {
     }
 
     private List<Item> fetchAllMotorcycleData() {
-        final int totalItems = 900;
-        final int pageSize = 50;
-        Executor executor = Executors.newFixedThreadPool(10); // Ajusta según los recursos disponibles
-        List<CompletableFuture<List<Item>>> futures = new ArrayList<>();
+        int totalItems = 900; // Total de items a paginar
+        int pageSize = 50; // Cantidad de items por página
 
-        for (int offset = 0; offset < totalItems; offset += pageSize) {
-            int limit = Math.min(pageSize, totalItems - offset);
-            futures.add(fetchMotorcycleDataAsync(offset, limit, executor));
+        List<CompletableFuture<List<Item>>> futurePages = IntStream.range(0, (totalItems + pageSize - 1) / pageSize)
+                .mapToObj(page -> {
+                    int offset = page * pageSize;
+                    int limit = Math.min(pageSize, totalItems - offset);
+                    return fetchMotorcycleDataAsync(offset, limit);
+                })
+                .collect(Collectors.toList());
+
+        List<Item> allItems = futurePages.stream()
+                .map(CompletableFuture::join)
+                .flatMap(List::stream)
+                .collect(Collectors.toList());
+
+        // Registro detallado para verificar el tamaño de cada página
+        int totalFetched = 0;
+        for (int i = 0; i < futurePages.size(); i++) {
+            int pageSizeFetched = futurePages.get(i).join().size();
+            totalFetched += pageSizeFetched;
         }
 
-        // se combinan los resultados de todas las llamadas a la api usando CompletableFuture.allOf y CompletableFuture.join
-        CompletableFuture<Void> allDoneFuture = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
-        List<Item> allItems = allDoneFuture.thenApply(v -> {
-            return futures.stream()
-                    .map(CompletableFuture::join)
-                    .flatMap(List::stream)
-                    .collect(Collectors.toList());
-        }).join();
-
-        // aca me fijo si aun hace falta traer mas datos de la api dependiendo de la cantidad de items que se hayan traido
-        int receivedItems = allItems.size();
-        if (receivedItems < totalItems) {
-            int remainingItems = totalItems - receivedItems;
-
-            while (receivedItems < totalItems) {
-                int offset = receivedItems;
-                int limit = Math.min(pageSize, remainingItems);
-                List<Item> additionalItems = fetchMotorcycleData(offset, limit);
-                allItems.addAll(additionalItems);
-                receivedItems += additionalItems.size();
-                remainingItems -= additionalItems.size();
-                if (additionalItems.isEmpty()) {
-                    break;
-                }
-            }
+        if (allItems.size() < totalItems) {
+            int offset = allItems.size(); // La posición del siguiente elemento faltante
+            int limit = totalItems - allItems.size(); // Elementos restantes para alcanzar 900
+            List<Item> additionalItems = fetchMotorcycleData(offset, limit);
+            allItems.addAll(additionalItems);
         }
+
+        System.out.println("total items fetched: " + allItems.size());
         return allItems;
     }
 
-    private CompletableFuture<List<Item>> fetchMotorcycleDataAsync(int offset, int limit, Executor executor) {
-        return CompletableFuture.supplyAsync(() -> fetchMotorcycleData(offset, limit), executor);
+
+
+    private CompletableFuture<List<Item>> fetchMotorcycleDataAsync(int offset, int limit) {
+        return CompletableFuture.supplyAsync(() -> fetchMotorcycleData(offset, limit));
     }
 
     private List<Item> fetchMotorcycleData(int offset, int limit) {
@@ -84,26 +80,37 @@ public class MotoService implements MotoServiceInterface {
 
     private Map<String, BrandCurrencyData> processItems(List<Item> items) {
         Map<String, BrandCurrencyData> currencyDataByBrand = new HashMap<>();
-        items.forEach(item -> {
+
+        for (Item item : items) {
             String brand = item.getBrand().toLowerCase();
             double price = item.getPrice();
             String currencyId = item.getCurrencyId();
+
             currencyDataByBrand.computeIfAbsent(brand, k -> new BrandCurrencyData())
                     .addData(price, currencyId);
-        });
+        }
         return currencyDataByBrand;
     }
 
     private Map<String, Map<String, String>> calculateAverages(Map<String, BrandCurrencyData> dataByBrand) {
         Map<String, Map<String, String>> averages = new HashMap<>();
+
         dataByBrand.forEach((brand, data) -> {
             Map<String, String> details = new HashMap<>();
-            details.put("promedio", String.format("%.2f", data.getAveragePrice()));
-            details.put("currency", data.getPredominantCurrency());
+            double average = data.getAveragePrice();
+            String currency = data.getPredominantCurrency();
+
+            details.put("promedio", String.format("%.2f", average));
+            details.put("currency", currency);
+            averages.put(brand, details);
+
+            // Imprime la marca y el promedio con su moneda en la consola
             System.out.println("Marca: " + brand + ", Promedio: " + details.get("promedio") + " " + details.get("currency"));
         });
+
         return averages;
     }
+
 
     static class BrandCurrencyData {
         private double totalARS = 0;
@@ -122,11 +129,15 @@ public class MotoService implements MotoServiceInterface {
         }
 
         double getAveragePrice() {
-            return (countARS >= countUSD) ? totalARS / countARS : totalUSD / countUSD;
+            if (countARS >= countUSD) {
+                return totalARS / countARS;
+            } else {
+                return totalUSD / countUSD;
+            }
         }
 
         String getPredominantCurrency() {
-            return (countARS >= countUSD) ? "ARS" : "USD";
+            return countARS >= countUSD ? "ARS" : "USD";
         }
     }
 }
