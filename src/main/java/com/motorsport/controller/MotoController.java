@@ -17,7 +17,7 @@ public class MotoController {
     }
 
     @GetMapping("/promedios")
-    public Map<String, Map<String, String>> calculateAverages() {
+    public Map<String, Map<String, String>> ObtenerPromedioPorMarca() {
         return motoService.obtenerPromedioPorMarca();
     }
 }
