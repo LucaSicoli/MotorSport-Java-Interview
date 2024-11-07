@@ -1,11 +1,9 @@
 package com.motorsport.service;
-
 import com.motorsport.model.Item;
 import com.motorsport.model.MercadoLibreResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
-
 import java.util.HashMap;
 import java.util.Map;
 
@@ -17,7 +15,6 @@ public class MotoService {
 
     public Map<String, Map<String, String>> obtenerPromedioPorMarca() {
         RestTemplate restTemplate = new RestTemplate();
-
         Map<String, Double> totalPorMarca = new HashMap<>();
         Map<String, Integer> conteoPorMarca = new HashMap<>();
         Map<String, Double> totalPesosPorMarca = new HashMap<>();
