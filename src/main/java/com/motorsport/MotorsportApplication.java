@@ -1,5 +1,4 @@
 package com.motorsport;
-
 import com.motorsport.service.MotoService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;

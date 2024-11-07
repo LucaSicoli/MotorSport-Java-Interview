@@ -1,9 +1,12 @@
 package com.motorsport.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Getter;
 
+@Getter
 public class Attribute {
 
+    // Getters y Setters
     @JsonProperty("id")
     private String id;
 
@@ -13,16 +16,4 @@ public class Attribute {
     @JsonProperty("value_name")
     private String valueName;
 
-    // Getters y Setters
-    public String getId() {
-        return id;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public String getValueName() {
-        return valueName;
-    }
 }

@@ -2,131 +2,131 @@ package com.motorsport.service;
 
 import com.motorsport.model.Item;
 import com.motorsport.model.MercadoLibreResponse;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
 
 @Service
-public class MotoService {
+public class MotoService implements MotoServiceInterface {
 
-    @Value("${mercadolibre.api.url}")
-    private String baseUrl;
+    private final RestTemplate restTemplate;
+    private final String baseUrl;
 
+    @Autowired
+    public MotoService(RestTemplate restTemplate, @Value("${mercadolibre.api.url}") String baseUrl) {
+        this.restTemplate = restTemplate;
+        this.baseUrl = baseUrl;
+    }
+
+    @Override
     public Map<String, Map<String, String>> obtenerPromedioPorMarca() {
-        RestTemplate restTemplate = new RestTemplate();
-        Map<String, Double> totalPorMarca = new HashMap<>();
-        Map<String, Integer> conteoPorMarca = new HashMap<>();
-        Map<String, Double> totalPesosPorMarca = new HashMap<>();
-        Map<String, Integer> conteoPesosPorMarca = new HashMap<>();
-        Map<String, Integer> conteoMonedas = new HashMap<>(); // New map to count currencies
+        List<Item> items = fetchAllMotorcycleData();
+        return calculateAverages(processItems(items));
+    }
 
-        int offset = 0;
+    private List<Item> fetchAllMotorcycleData() {
+        final int totalItems = 900;
+        final int pageSize = 50;
+        Executor executor = Executors.newFixedThreadPool(10); // Ajusta según los recursos disponibles
+        List<CompletableFuture<List<Item>>> futures = new ArrayList<>();
 
-        while (true) {
-            MercadoLibreResponse response = fetchMotorcycleData(restTemplate, offset);
-            if (response == null || response.getResults() == null || response.getResults().isEmpty()) {
-                System.out.println("No se encontraron resultados o la respuesta es nula.");
-                break; // Exit if no more results
-            }
-
-            processItems(response.getResults(), totalPorMarca, conteoPorMarca, totalPesosPorMarca, conteoPesosPorMarca, conteoMonedas);
-
-            offset += response.getResults().size();
-            if (offset >= 900) break; // Limit to 900 records
+        for (int offset = 0; offset < totalItems; offset += pageSize) {
+            int limit = Math.min(pageSize, totalItems - offset);
+            futures.add(fetchMotorcycleDataAsync(offset, limit, executor));
         }
 
-        return calculateAverages(totalPesosPorMarca, conteoPorMarca, conteoMonedas);
+        // se combinan los resultados de todas las llamadas a la api usando CompletableFuture.allOf y CompletableFuture.join
+        CompletableFuture<Void> allDoneFuture = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+        List<Item> allItems = allDoneFuture.thenApply(v -> {
+            return futures.stream()
+                    .map(CompletableFuture::join)
+                    .flatMap(List::stream)
+                    .collect(Collectors.toList());
+        }).join();
+
+        // aca me fijo si aun hace falta traer mas datos de la api dependiendo de la cantidad de items que se hayan traido
+        int receivedItems = allItems.size();
+        if (receivedItems < totalItems) {
+            int remainingItems = totalItems - receivedItems;
+
+            while (receivedItems < totalItems) {
+                int offset = receivedItems;
+                int limit = Math.min(pageSize, remainingItems);
+                List<Item> additionalItems = fetchMotorcycleData(offset, limit);
+                allItems.addAll(additionalItems);
+                receivedItems += additionalItems.size();
+                remainingItems -= additionalItems.size();
+                if (additionalItems.isEmpty()) {
+                    break;
+                }
+            }
+        }
+        return allItems;
     }
 
-    private MercadoLibreResponse fetchMotorcycleData(RestTemplate restTemplate, int offset) {
-        String url = baseUrl + "&offset=" + offset;
-        return restTemplate.getForObject(url, MercadoLibreResponse.class);
+    private CompletableFuture<List<Item>> fetchMotorcycleDataAsync(int offset, int limit, Executor executor) {
+        return CompletableFuture.supplyAsync(() -> fetchMotorcycleData(offset, limit), executor);
     }
 
-    private void processItems(List<Item> items,
-                              Map<String, Double> totalPorMarca,
-                              Map<String, Integer> conteoPorMarca,
-                              Map<String, Double> totalPesosPorMarca,
-                              Map<String, Integer> conteoPesosPorMarca,
-                              Map<String, Integer> conteoMonedas) {
-        for (Item item : items) {
-            String marca = item.getBrand().toLowerCase(); // Convert to lowercase to avoid duplicates
-            if (marca == null) continue; // Ignore if brand is null
+    private List<Item> fetchMotorcycleData(int offset, int limit) {
+        String url = String.format("%s&offset=%d&limit=%d", baseUrl, offset, limit);
+        return Optional.ofNullable(restTemplate.getForObject(url, MercadoLibreResponse.class))
+                .map(MercadoLibreResponse::getResults)
+                .orElse(Collections.emptyList());
+    }
 
+    private Map<String, BrandCurrencyData> processItems(List<Item> items) {
+        Map<String, BrandCurrencyData> currencyDataByBrand = new HashMap<>();
+        items.forEach(item -> {
+            String brand = item.getBrand().toLowerCase();
             double price = item.getPrice();
-            String currencyId = item.getCurrencyId(); // Get currency_id
-
-            // Update totals and counts
-            updateTotalsAndCounts(marca, price, currencyId,
-                    totalPorMarca, conteoPorMarca,
-                    totalPesosPorMarca, conteoPesosPorMarca,
-                    conteoMonedas);
-        }
+            String currencyId = item.getCurrencyId();
+            currencyDataByBrand.computeIfAbsent(brand, k -> new BrandCurrencyData())
+                    .addData(price, currencyId);
+        });
+        return currencyDataByBrand;
     }
 
-    private void updateTotalsAndCounts(String marca,
-                                       double price,
-                                       String currencyId,
-                                       Map<String, Double> totalPorMarca,
-                                       Map<String, Integer> conteoPorMarca,
-                                       Map<String, Double> totalPesosPorMarca,
-                                       Map<String, Integer> conteoPesosPorMarca,
-                                       Map<String, Integer> conteoMonedas) {
-        // Update totals and counts for brands
-        totalPorMarca.put(marca, totalPorMarca.getOrDefault(marca, 0.0) + price);
-        conteoPorMarca.put(marca, conteoPorMarca.getOrDefault(marca, 0) + 1);
-
-        // Accumulate in pesos
-        if (currencyId.equals("ARS")) {
-            totalPesosPorMarca.put(marca, totalPesosPorMarca.getOrDefault(marca, 0.0) + price);
-            conteoPesosPorMarca.put(marca, conteoPesosPorMarca.getOrDefault(marca, 0) + 1);
-            conteoMonedas.put(marca, conteoMonedas.getOrDefault(marca, 0) + 1); // Count ARS
-        } else if (currencyId.equals("USD")) {
-            totalPesosPorMarca.put(marca, totalPesosPorMarca.getOrDefault(marca, 0.0) + price * 1130);
-            conteoPesosPorMarca.put(marca, conteoPesosPorMarca.getOrDefault(marca, 0) + 1);
-            conteoMonedas.put(marca + "_USD", conteoMonedas.getOrDefault(marca + "_USD", 0) + 1); // Count USD
-        }
+    private Map<String, Map<String, String>> calculateAverages(Map<String, BrandCurrencyData> dataByBrand) {
+        Map<String, Map<String, String>> averages = new HashMap<>();
+        dataByBrand.forEach((brand, data) -> {
+            Map<String, String> details = new HashMap<>();
+            details.put("promedio", String.format("%.2f", data.getAveragePrice()));
+            details.put("currency", data.getPredominantCurrency());
+            System.out.println("Marca: " + brand + ", Promedio: " + details.get("promedio") + " " + details.get("currency"));
+        });
+        return averages;
     }
 
-    private Map<String, Map<String, String>> calculateAverages(Map<String, Double> totalPesosPorMarca,
-                                                               Map<String, Integer> conteoPorMarca,
-                                                               Map<String, Integer> conteoMonedas) {
-        Map<String, Map<String, String>> promedioConMoneda = new HashMap<>();
+    static class BrandCurrencyData {
+        private double totalARS = 0;
+        private double totalUSD = 0;
+        private int countARS = 0;
+        private int countUSD = 0;
 
-        for (String marca : totalPesosPorMarca.keySet()) {
-            double total = totalPesosPorMarca.getOrDefault(marca, 0.0); // Use the total in pesos
-            int count = conteoPorMarca.get(marca);
-            double promedio = count > 0 ? total / count : 0;
-
-            // Determine predominant currency
-            String monedaPredominante;
-            int arsCount = conteoMonedas.getOrDefault(marca, 0);
-            int usdCount = conteoMonedas.getOrDefault(marca + "_USD", 0);
-
-            if (arsCount > usdCount) {
-                monedaPredominante = "ARS"; // Predominance in ARS
-            } else {
-                monedaPredominante = "USD"; // Predominance in USD
-                promedio /= 1130; // Convert average back to USD if needed
+        void addData(double price, String currencyId) {
+            if ("ARS".equals(currencyId)) {
+                totalARS += price;
+                countARS++;
+            } else if ("USD".equals(currencyId)) {
+                totalUSD += price;
+                countUSD++;
             }
-
-            // Format average to two decimals
-            String promedioFormateado = String.format("%.2f", promedio).replace('.', ','); // Change point to comma
-
-            Map<String, String> detalles = new HashMap<>();
-            detalles.put("promedio", promedioFormateado);
-            detalles.put("currency", monedaPredominante); // Use the predominant currency
-
-            // Print the average and currency to console
-            System.out.println("Promedio de " + marca.substring(0, 1).toUpperCase() + marca.substring(1) + ": " + promedioFormateado + " " + monedaPredominante);
-
-            promedioConMoneda.put(marca.substring(0, 1).toUpperCase() + marca.substring(1), detalles); // Capitalize the first letter of the brand
         }
 
-        return promedioConMoneda;
+        double getAveragePrice() {
+            return (countARS >= countUSD) ? totalARS / countARS : totalUSD / countUSD;
+        }
+
+        String getPredominantCurrency() {
+            return (countARS >= countUSD) ? "ARS" : "USD";
+        }
     }
 }

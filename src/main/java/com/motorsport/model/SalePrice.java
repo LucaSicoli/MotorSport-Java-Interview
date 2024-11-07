@@ -1,7 +1,9 @@
 package com.motorsport.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Getter;
 
+@Getter
 public class SalePrice {
 
     @JsonProperty("amount")
@@ -10,11 +12,4 @@ public class SalePrice {
     @JsonProperty("currency_id")
     private String currencyId; // Almacenar currency_id como String
 
-    public double getAmount() {
-        return amount;
-    }
-
-    public String getCurrencyId() {
-        return currencyId;
-    }
 }
