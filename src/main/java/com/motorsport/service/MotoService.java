@@ -1,9 +1,11 @@
 package com.motorsport.service;
+
 import com.motorsport.model.Item;
 import com.motorsport.model.MercadoLibreResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -19,6 +21,7 @@ public class MotoService {
         Map<String, Integer> conteoPorMarca = new HashMap<>();
         Map<String, Double> totalPesosPorMarca = new HashMap<>();
         Map<String, Integer> conteoPesosPorMarca = new HashMap<>();
+        Map<String, Integer> conteoMonedas = new HashMap<>(); // New map to count currencies
 
         int offset = 0;
 
@@ -46,10 +49,12 @@ public class MotoService {
                 if (currencyId.equals("ARS")) {
                     totalPesosPorMarca.put(marca, totalPesosPorMarca.getOrDefault(marca, 0.0) + price);
                     conteoPesosPorMarca.put(marca, conteoPesosPorMarca.getOrDefault(marca, 0) + 1);
+                    conteoMonedas.put(marca, conteoMonedas.getOrDefault(marca, 0) + 1); // Count ARS
                 } else if (currencyId.equals("USD")) {
                     // Convertir a pesos y acumular
                     totalPesosPorMarca.put(marca, totalPesosPorMarca.getOrDefault(marca, 0.0) + price * 1130);
                     conteoPesosPorMarca.put(marca, conteoPesosPorMarca.getOrDefault(marca, 0) + 1);
+                    conteoMonedas.put(marca + "_USD", conteoMonedas.getOrDefault(marca + "_USD", 0) + 1); // Count USD
                 }
             }
 
@@ -66,10 +71,14 @@ public class MotoService {
 
             // Determinar la moneda predominante
             String monedaPredominante;
-            if (conteoPesosPorMarca.containsKey(marca)) {
-                monedaPredominante = "ARS"; // Si hay precios en ARS
+            int arsCount = conteoMonedas.getOrDefault(marca, 0);
+            int usdCount = conteoMonedas.getOrDefault(marca + "_USD", 0);
+
+            if (arsCount > usdCount) {
+                monedaPredominante = "ARS"; // Predominance in ARS
             } else {
-                monedaPredominante = "USD"; // Predominará USD si no hay ARS
+                monedaPredominante = "USD"; // Predominance in USD
+                promedio /= 1130; // Convert average back to USD if needed
             }
 
             // Formatear el promedio a dos decimales
