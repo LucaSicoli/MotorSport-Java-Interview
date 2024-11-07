@@ -1,6 +1,7 @@
 package com.motorsport.controller;
 
 import com.motorsport.service.MotoService;
+import com.motorsport.service.MotoServiceInterface;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -9,9 +10,9 @@ import java.util.Map;
 @RestController
 public class MotoController {
 
-    private final MotoService motoService;
+    private final MotoServiceInterface motoService;
 
-    public MotoController(MotoService motoService) {
+    public MotoController(MotoServiceInterface motoService) {
         this.motoService = motoService;
     }
 
