@@ -128,6 +128,7 @@ public class MotoService implements MotoServiceInterface {
         private double totalUSD = 0;
         private int countARS = 0;
         private int countUSD = 0;
+        private static final double USD_TO_ARS_RATE = 1200; // Tasa de cambio fija para conversión
 
         void addData(double price, String currencyId) {
             if ("ARS".equals(currencyId)) {
@@ -140,15 +141,22 @@ public class MotoService implements MotoServiceInterface {
         }
 
         double getAveragePrice() {
-            if (countARS >= countUSD) {
-                return totalARS / countARS;
+            // Determina la moneda predominante y convierte la minoría de precios
+            if (countARS > countUSD) {
+                // Convertir el total de USD a ARS y sumar al total en ARS
+                double totalUSDinARS = totalUSD * USD_TO_ARS_RATE;
+                return (totalARS + totalUSDinARS) / (countARS + countUSD);
             } else {
-                return totalUSD / countUSD;
+                // Convertir el total de ARS a USD y sumar al total en USD
+                double totalARSinUSD = totalARS / USD_TO_ARS_RATE;
+                return (totalUSD + totalARSinUSD) / (countARS + countUSD);
             }
         }
 
         String getPredominantCurrency() {
+            // Determina la moneda predominante para la salida
             return countARS >= countUSD ? "ARS" : "USD";
         }
     }
+
 }
