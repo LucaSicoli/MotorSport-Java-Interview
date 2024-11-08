@@ -83,6 +83,16 @@ public class MotoService implements MotoServiceInterface {
 
         for (Item item : items) {
             String brand = item.getBrand().toLowerCase();
+
+            // Correcciones de nombres de marcas
+            if (brand.equals("susuki")) {
+                brand = "suzuki";
+            } else if (brand.equals("royal enfiled")) {
+                brand = "royal enfield";
+            } else if (brand.equals("c&f")) {
+                brand = "cfmoto";
+            }
+
             double price = item.getPrice();
             String currencyId = item.getCurrencyId();
 
@@ -91,6 +101,7 @@ public class MotoService implements MotoServiceInterface {
         }
         return currencyDataByBrand;
     }
+
 
     private Map<String, Map<String, String>> calculateAverages(Map<String, BrandCurrencyData> dataByBrand) {
         Map<String, Map<String, String>> averages = new HashMap<>();
